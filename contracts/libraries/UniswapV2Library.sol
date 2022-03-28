@@ -15,6 +15,7 @@ library UniswapV2Library {
     }
 
     // calculates the CREATE2 address for a pair without making any external calls
+    // 计算pair地址
     function pairFor(address factory, address tokenA, address tokenB) internal pure returns (address pair) {
         (address token0, address token1) = sortTokens(tokenA, tokenB);
         pair = address(uint(keccak256(abi.encodePacked(
@@ -33,6 +34,7 @@ library UniswapV2Library {
     }
 
     // given some amount of an asset and pair reserves, returns an equivalent amount of the other asset
+    // 在给定数量资产和储备量的情况下，返回等量的其他资产；
     function quote(uint amountA, uint reserveA, uint reserveB) internal pure returns (uint amountB) {
         require(amountA > 0, 'UniswapV2Library: INSUFFICIENT_AMOUNT');
         require(reserveA > 0 && reserveB > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');

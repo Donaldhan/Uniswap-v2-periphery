@@ -28,52 +28,74 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
     receive() external payable {
         assert(msg.sender == WETH); // only accept ETH via fallback from the WETH contract
     }
+    /**
+    tokenA 和 tokenB 很好理解，但是为什么要有 amountADesired、amountADesired、amountAMin、amountBMin 呢？
+    实际上因为用户在区块链上添加流动性并不是实时完成的，因此会因为其他用户的操作产生数据偏差，因此需要在这里指定一个为 tokenA 和 tokenB 添加流动性的数值范围。在添加流动性的过程中，
+    首先会根据 amountADesired 计算出实际要添加的 amountB，如果 amountB 大于 amountBDesired 就换成根据 amountBDesired 计算出实际要添加的 amountA 
+    
 
+    在实际上，计算出来的 amountA 和 amountB 
+    只需要满足这个公式：(amountAMin = amountA && amountBMin <= amountB <= amountBDesired) || (amountAMin <= amountA <= amountADesired && amountB = amountBDesired)
+    */
     // **** ADD LIQUIDITY ****
     function _addLiquidity(
-        address tokenA,
-        address tokenB,
-        uint amountADesired,
-        uint amountBDesired,
-        uint amountAMin,
-        uint amountBMin
+        address tokenA, // 添加流动性 tokenA 的地址
+        address tokenB, // 添加流动性 tokenB 的地址
+        uint amountADesired, // 期望添加 tokenA 的数量
+        uint amountBDesired, // 期望添加 tokenB 的数量
+        uint amountAMin, // 添加 tokenA 的最小数量
+        uint amountBMin // 添加 tokenB 的最小数量
     ) internal virtual returns (uint amountA, uint amountB) {
         // create the pair if it doesn't exist yet
+        // 如果 tokenA,tokenB 的流动池不存在，就创建流动池
         if (IUniswapV2Factory(factory).getPair(tokenA, tokenB) == address(0)) {
             IUniswapV2Factory(factory).createPair(tokenA, tokenB);
         }
+         // 获取 tokenA,tokenB 的目前库存数量
         (uint reserveA, uint reserveB) = UniswapV2Library.getReserves(factory, tokenA, tokenB);
         if (reserveA == 0 && reserveB == 0) {
+             // 如果库存数量为0，也就是新建 tokenA,tokenB 的流动池，那么实际添加的amountA, amountB 就是 amountADesired 和 amountBDesired
             (amountA, amountB) = (amountADesired, amountBDesired);
         } else {
+            // amountADesired*reserveB/reserveA，算出实际要添加的 tokenB 数量 amountBOptimal
             uint amountBOptimal = UniswapV2Library.quote(amountADesired, reserveA, reserveB);
             if (amountBOptimal <= amountBDesired) {
+                 // 如果 amountBMin <= amountBOptimal <= amountBDesired，amountA 和 amountB 就是 amountADesired 和 amountBOptimal
                 require(amountBOptimal >= amountBMin, 'UniswapV2Router: INSUFFICIENT_B_AMOUNT');
                 (amountA, amountB) = (amountADesired, amountBOptimal);
             } else {
+                 // amountBDesired*reserveA/reserveB，算出实际要添加的 tokenA 数量 amountAOptimal
                 uint amountAOptimal = UniswapV2Library.quote(amountBDesired, reserveB, reserveA);
                 assert(amountAOptimal <= amountADesired);
                 require(amountAOptimal >= amountAMin, 'UniswapV2Router: INSUFFICIENT_A_AMOUNT');
+                // 如果 amountAMin <= amountAOptimal <= amountADesired，amountA 和 amountB 就是 amountAOptimal 和 amountBDesired
                 (amountA, amountB) = (amountAOptimal, amountBDesired);
             }
         }
     }
+    //添加流动性
     function addLiquidity(
-        address tokenA,
-        address tokenB,
-        uint amountADesired,
-        uint amountBDesired,
-        uint amountAMin,
-        uint amountBMin,
-        address to,
-        uint deadline
+        address tokenA, // 添加流动性 tokenA 的地址
+        address tokenB, // 添加流动性 tokenB 的地址
+        uint amountADesired, // 期望添加 tokenA 的数量
+        uint amountBDesired, // 期望添加 tokenB 的数量
+        uint amountAMin, // 添加 tokenA 的最小数量
+        uint amountBMin, // 添加 tokenB 的最小数量
+        address to, // 获得的 LP 发送到的地址
+        uint deadline // 过期时间
     ) external virtual override ensure(deadline) returns (uint amountA, uint amountB, uint liquidity) {
+        //获取tokenA，B的实际数量
         (amountA, amountB) = _addLiquidity(tokenA, tokenB, amountADesired, amountBDesired, amountAMin, amountBMin);
+        //获取token A、Bpair的地址
         address pair = UniswapV2Library.pairFor(factory, tokenA, tokenB);
+        //从tokenA、B的 msg.sender账号中，分别转移amountA， amountB到pair账号
         TransferHelper.safeTransferFrom(tokenA, msg.sender, pair, amountA);
         TransferHelper.safeTransferFrom(tokenB, msg.sender, pair, amountB);
+        //挖取流动性LP TOKEN
         liquidity = IUniswapV2Pair(pair).mint(to);
     }
+
+    
     function addLiquidityETH(
         address token,
         uint amountTokenDesired,
