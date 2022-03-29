@@ -8,6 +8,7 @@ library UniswapV2Library {
     using SafeMath for uint;
 
     // returns sorted token addresses, used to handle return values from pairs sorted in this order
+    // 排序token，根据地址升序
     function sortTokens(address tokenA, address tokenB) internal pure returns (address token0, address token1) {
         require(tokenA != tokenB, 'UniswapV2Library: IDENTICAL_ADDRESSES');
         (token0, token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
@@ -27,8 +28,11 @@ library UniswapV2Library {
     }
 
     // fetches and sorts the reserves for a pair
+    // 按token地址升序获取token A，B pair的储备量
     function getReserves(address factory, address tokenA, address tokenB) internal view returns (uint reserveA, uint reserveB) {
+        //排序token,获取地址小的token
         (address token0,) = sortTokens(tokenA, tokenB);
+        //获取token AB的储备量
         (uint reserve0, uint reserve1,) = IUniswapV2Pair(pairFor(factory, tokenA, tokenB)).getReserves();
         (reserveA, reserveB) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
     }
@@ -42,9 +46,11 @@ library UniswapV2Library {
     }
 
     // given an input amount of an asset and pair reserves, returns the maximum output amount of the other asset
+    // 根据输入的资产和pair的储备量，获取另外一个资产的最大输出量
     function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) internal pure returns (uint amountOut) {
         require(amountIn > 0, 'UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT');
         require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
+        //3%的手续费
         uint amountInWithFee = amountIn.mul(997);
         uint numerator = amountInWithFee.mul(reserveOut);
         uint denominator = reserveIn.mul(1000).add(amountInWithFee);
@@ -61,12 +67,15 @@ library UniswapV2Library {
     }
 
     // performs chained getAmountOut calculations on any number of pairs
+    //获取所有pair中，输入资产amountIn，可以获取的其他资产
     function getAmountsOut(address factory, uint amountIn, address[] memory path) internal view returns (uint[] memory amounts) {
         require(path.length >= 2, 'UniswapV2Library: INVALID_PATH');
         amounts = new uint[](path.length);
         amounts[0] = amountIn;
         for (uint i; i < path.length - 1; i++) {
+           //// 按token地址升序获取token A，B pair的储备量
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i], path[i + 1]);
+            //// 根据输入的资产和pair的储备量，获取另外一个资产的最大输出量
             amounts[i + 1] = getAmountOut(amounts[i], reserveIn, reserveOut);
         }
     }

@@ -95,7 +95,10 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         liquidity = IUniswapV2Pair(pair).mint(to);
     }
 
-    
+    /**
+     * addLiquidityETH 函数的不同之处在于使用了 ETH 作为 tokenB，因此不需要指定 tokenB 的地址和期望数量;
+     * 因为 tokenB 的地址就是 WETH 的地址，tokenB 的期望数量就是用户发送的 ETH 数量。但这样也多了将 ETH 换成 WETH，并向用户返还多余 ETH 的操作。
+     */
     function addLiquidityETH(
         address token,
         uint amountTokenDesired,
@@ -104,6 +107,7 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         address to,
         uint deadline
     ) external virtual override payable ensure(deadline) returns (uint amountToken, uint amountETH, uint liquidity) {
+        // 计算实际添加的 amountToken, amountETH
         (amountToken, amountETH) = _addLiquidity(
             token,
             WETH,
@@ -112,12 +116,18 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
             amountTokenMin,
             amountETHMin
         );
+        // 获取 token, WETH 的流动池地址
         address pair = UniswapV2Library.pairFor(factory, token, WETH);
+        // 从用户向流动池发送数量为 amountToken 的 token
         TransferHelper.safeTransferFrom(token, msg.sender, pair, amountToken);
+         // Router将用户发送的 ETH 置换成 WETH
         IWETH(WETH).deposit{value: amountETH}();
+        //// Router向流动池发送数量为 amountETH 的 WETH
         assert(IWETH(WETH).transfer(pair, amountETH));
+         // 流动池向 to 地址发送数量为 liquidity 的 LP
         liquidity = IUniswapV2Pair(pair).mint(to);
         // refund dust eth, if any
+        // 如果用户发送的 ETH > amountETH，Router就向用户返还多余的 ETH
         if (msg.value > amountETH) TransferHelper.safeTransferETH(msg.sender, msg.value - amountETH);
     }
 
@@ -230,33 +240,55 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
     }
 
     // **** SWAP ****
+    // 无费用的swap
+
     // requires the initial amount to have already been sent to the first pair
+    // 函数 _swap 实现了由多重交易组成的交易集合。path 数组里定义了执行代币交易的顺序，
+    // amounts 数组里定义了每次交换获得代币的期望数量，_to 则是最后获得代币发送到的地址
     function _swap(uint[] memory amounts, address[] memory path, address _to) internal virtual {
         for (uint i; i < path.length - 1; i++) {
+            // 从 path 中取出 input 和 output
             (address input, address output) = (path[i], path[i + 1]);
+               // 从 input 和 output 中算出谁是 token0
             (address token0,) = UniswapV2Library.sortTokens(input, output);
+            // 期望交易获得的代币数量
             uint amountOut = amounts[i + 1];
+             // 如果 input == token0，那么 amount0Out 就是0，amount1Out 就是 amountOut；反之则相反
             (uint amount0Out, uint amount1Out) = input == token0 ? (uint(0), amountOut) : (amountOut, uint(0));
+             // 如果这是最后的一笔交易，那么 to 地址就是 _to，否则 to 地址是下一笔交易的流动池地址
             address to = i < path.length - 2 ? UniswapV2Library.pairFor(factory, output, path[i + 2]) : _to;
+            // 执行 input 和 output 的交易
             IUniswapV2Pair(UniswapV2Library.pairFor(factory, input, output)).swap(
                 amount0Out, amount1Out, to, new bytes(0)
             );
         }
     }
+    /**
+     * 函数 swapExactTokensForTokens 实现了用户使用数量精确的 tokenA 交易数量不精确的 tokenB 的流程。
+     * 用户使用确定的 amountIn 数量的 tokenA ，交易获得 tokenB 的数量不会小于 amountOutMin，
+     * 但具体 tokenB 的数量只有交易完成之后才能知道。这同样是由于区块链上交易不是实时的，实际交易和预期交易相比会有一定的偏移。
+     * 由于区块链上的实际交易和预期交易有偏差是常见的事情，因此在设计链上交易的时候逻辑会比较复杂，条件选择会有很多。
+     */
     function swapExactTokensForTokens(
-        uint amountIn,
-        uint amountOutMin,
-        address[] calldata path,
-        address to,
-        uint deadline
+        uint amountIn,// 交易支付代币数量
+        uint amountOutMin,// 交易获得代币最小值
+        address[] calldata path, // 交易路径列表
+        address to, // 交易获得的 token 发送到的地址
+        uint deadline // 过期时间
     ) external virtual override ensure(deadline) returns (uint[] memory amounts) {
+        // 获取 path 列表下，支付 amountIn 数量的 path[0] 代币，各个代币交易的预期数量
         amounts = UniswapV2Library.getAmountsOut(factory, amountIn, path);
+        // 如果最终获得的代币数量小于 amountOutMin，则交易失败
         require(amounts[amounts.length - 1] >= amountOutMin, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
+         // 将 amounts[0] 数量的 path[0] 代币从用户账户中转移到 path[0], path[1] 的流动池
         TransferHelper.safeTransferFrom(
             path[0], msg.sender, UniswapV2Library.pairFor(factory, path[0], path[1]), amounts[0]
         );
+        // 按 path 列表执行交易集合
         _swap(amounts, path, to);
     }
+    /**
+     */
     function swapTokensForExactTokens(
         uint amountOut,
         uint amountInMax,
@@ -271,6 +303,11 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         );
         _swap(amounts, path, to);
     }
+    /**
+     *  函数 swapExactETHForTokens 和函数 swapExactTokensForTokens 的逻辑几乎一样，
+     * 只是把支付精确数量的 token 换成了支付精确数量的 ETH。因此多了一些和 ETH 相关的额外操作。
+     * 此函数一般用于出售确定数量的 ETH，获得不确定数量代币。
+     */
     function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline)
         external
         virtual
@@ -279,13 +316,21 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         ensure(deadline)
         returns (uint[] memory amounts)
     {
+        // 检查 path[0] 是否为 WETH 地址
         require(path[0] == WETH, 'UniswapV2Router: INVALID_PATH');
+         // 获取 path 列表下，支付 amountIn 数量的 path[0] 代币，各个代币交易的预期数量
         amounts = UniswapV2Library.getAmountsOut(factory, msg.value, path);
+         // 如果最终获得的代币数量小于 amountOutMin，则交易失败
         require(amounts[amounts.length - 1] >= amountOutMin, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
+        // 把用户支付的 ETH 换成 WETH
         IWETH(WETH).deposit{value: amounts[0]}();
+        // 将 amounts[0] 数量的 WETH 代币从 Router 中转移到 path[0], path[1] 的流动池
         assert(IWETH(WETH).transfer(UniswapV2Library.pairFor(factory, path[0], path[1]), amounts[0]));
+        // 按 path 列表执行交易集合
         _swap(amounts, path, to);
     }
+    /**
+     */
     function swapTokensForExactETH(uint amountOut, uint amountInMax, address[] calldata path, address to, uint deadline)
         external
         virtual
@@ -303,6 +348,10 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         IWETH(WETH).withdraw(amounts[amounts.length - 1]);
         TransferHelper.safeTransferETH(to, amounts[amounts.length - 1]);
     }
+    /**
+    *  函数 swapExactTokensForETH 和 函数 swapTokensForExactETH 相比，是更换了输入精确数量代币的顺序。
+    *  此函数一般用于出售确定数量代币，获得不确定数量的 ETH。
+    */
     function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline)
         external
         virtual
@@ -310,16 +359,25 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         ensure(deadline)
         returns (uint[] memory amounts)
     {
+          // 检查 path[path.length - 1] 是否为 WETH 地址
         require(path[path.length - 1] == WETH, 'UniswapV2Router: INVALID_PATH');
+        // 获取 path 列表下，支付 amountIn 数量的 path[0] 代币，各个代币交易的预期数量
         amounts = UniswapV2Library.getAmountsOut(factory, amountIn, path);
+        // 如果最终获得的代币数量小于 amountOutMin，则交易失败
         require(amounts[amounts.length - 1] >= amountOutMin, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
+         // 将 amounts[0] 数量的 path[0] 代币从用户账户中转移到 path[0], path[1] 的流动池
         TransferHelper.safeTransferFrom(
             path[0], msg.sender, UniswapV2Library.pairFor(factory, path[0], path[1]), amounts[0]
         );
+           // 按 path 列表执行交易集
         _swap(amounts, path, address(this));
+        // 将 WETH 换成 ETH
         IWETH(WETH).withdraw(amounts[amounts.length - 1]);
+          // 把 ETH 发送给 to 地址
         TransferHelper.safeTransferETH(to, amounts[amounts.length - 1]);
     }
+    /**
+     */
     function swapETHForExactTokens(uint amountOut, address[] calldata path, address to, uint deadline)
         external
         virtual
