@@ -241,6 +241,7 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
      * 相比于 removeLiquidityETH，removeLiquidityETHSupportingFeeOnTransferTokens 少了一个出参。
      * 这是因为函数 removeLiquidityETHSupportingFeeOnTransferTokens 的主要功能是支持第三方为用户支付手续费并收取一定的代币，
      * 因此 amountToken 中有一部分会被第三方收取，用户真实获取的代币数量会比 amountToken 少。具体见 ERC865
+     * 实际上 removeLiquidityETHSupportingFeeOnTransferTokens 支持了所有在移除流动性时，数量会变化的代币，有一些代币的经济模式利用到了这点。
      */
     function removeLiquidityETHSupportingFeeOnTransferTokens(
         address token, // 移除流动性 token 的地址
@@ -250,6 +251,7 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         address to, // 获得的 token、ETH 发送到的地址
         uint deadline // 过期时间
     ) public virtual override ensure(deadline) returns (uint amountETH) {
+       // 移除流动性，Router获得不定数量的 token，数量为 amountETH 的 WETH
         (, amountETH) = removeLiquidity(
             token,
             WETH,
@@ -259,25 +261,34 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
             address(this),
             deadline
         );
+        // 向 to 地址发送全部 token
         TransferHelper.safeTransfer(token, to, IERC20(token).balanceOf(address(this)));
+        // 将数量为 amountETH 的 WETH 换成 ETH
         IWETH(WETH).withdraw(amountETH);
+        // 向 to 地址发送数量为 amountToken 的 ETH
         TransferHelper.safeTransferETH(to, amountETH);
     }
     /**
+     * removeLiquidityETHWithPermitSupportingFeeOnTransferTokens同样比 removeLiquidityETHWithPermit 少了一个出参，这同样是为了支持在移除流动性时，数量会变化的代币。
      * 
      */
     function removeLiquidityETHWithPermitSupportingFeeOnTransferTokens(
-        address token,
-        uint liquidity,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline,
-        bool approveMax, uint8 v, bytes32 r, bytes32 s
+        address token, // 移除流动性 token 的地址
+        uint liquidity, // 销毁 LP 的数量
+        uint amountTokenMin,  // 获得 token 数量的最小值
+        uint amountETHMin,  // 获得 ETH 数量的最小值
+        address to, // 获得的 token、ETH 发送到的地址
+        uint deadline, // 过期时间
+        bool approveMax, // 是否授权为最大值
+        uint8 v, bytes32 r, bytes32 s // 签名 v,r,
     ) external virtual override returns (uint amountETH) {
+       // 获取 tokenA, WETH 的流动池地址
         address pair = UniswapV2Library.pairFor(factory, token, WETH);
+        // 获取授权 LP 的数量
         uint value = approveMax ? uint(-1) : liquidity;
+        // 授权 Router 使用用户数量为 value 的 LP
         IUniswapV2Pair(pair).permit(msg.sender, address(this), value, deadline, v, r, s);
+        // 移除流动性并获得不定数量的 token 和数量为 amountETH 的 ETH
         amountETH = removeLiquidityETHSupportingFeeOnTransferTokens(
             token, liquidity, amountTokenMin, amountETHMin, to, deadline
         );
