@@ -132,31 +132,46 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
     }
 
     // **** REMOVE LIQUIDITY ****
+    /**
+     * 用户在移除流动性时，需要销毁 LP 换回 tokenA 和 tokenB。由于操作不是实时的，
+     * 因此同样需要指定 amountAMin 和 amountBMin，如果实际获得的 amountA 小于 amountAMin 或者 amountB 小于 amountBMin，那么移除流动性的操作都会失败。
+     * 移除流动性并不会检查你是否是流动性的添加者，只要你拥有 LP，那么就拥有了流动性的所有权。因此一定要保管好自己的 LP。
+     */
     function removeLiquidity(
-        address tokenA,
-        address tokenB,
-        uint liquidity,
-        uint amountAMin,
-        uint amountBMin,
-        address to,
-        uint deadline
+        address tokenA, // 移除流动性 tokenA 的地址
+        address tokenB, // 移除流动性 tokenB 的地址
+        uint liquidity, // 销毁 LP 的数量
+        uint amountAMin, // 获得 tokenA 数量的最小值
+        uint amountBMin, // 获得 tokenB 数量的最小值
+        address to, // 获得的 tokenA、tokenB 发送到的地址
+        uint deadline // 过期时间
     ) public virtual override ensure(deadline) returns (uint amountA, uint amountB) {
+         // 获取 token, WETH 的流动池地址
         address pair = UniswapV2Library.pairFor(factory, tokenA, tokenB);
-        IUniswapV2Pair(pair).transferFrom(msg.sender, pair, liquidity); // send liquidity to pair
+        // 用户向流动池发送数量为 liquidity 的 LP
+        IUniswapV2Pair(pair).transferFrom(msg.sender, pair, liquidity);
+        // 流动池销毁 LP 并向 to 地址发送数量为 amount0 的 token0 和 amount1 的 token1
         (uint amount0, uint amount1) = IUniswapV2Pair(pair).burn(to);
+        // 计算出 tokenA, tokenB 中谁是 token0
         (address token0,) = UniswapV2Library.sortTokens(tokenA, tokenB);
+        // 如果实际获得的 amountA < amountAMin 或者 amountB < amountBMin，那么交易失败
         (amountA, amountB) = tokenA == token0 ? (amount0, amount1) : (amount1, amount0);
         require(amountA >= amountAMin, 'UniswapV2Router: INSUFFICIENT_A_AMOUNT');
         require(amountB >= amountBMin, 'UniswapV2Router: INSUFFICIENT_B_AMOUNT');
     }
+    /**
+     * 移除流动性的是 ETH，不需要传入 ETH 的地址，改为使用 WETH
+     * 流动池中质押的是 WETH，在移除流动性时需要把 WETH 换回 ETH。
+     */
     function removeLiquidityETH(
-        address token,
-        uint liquidity,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline
+        address token, // 移除流动性 token 的地址
+        uint liquidity, // 销毁 LP 的数量
+        uint amountTokenMin, // 获得 token 数量的最小值
+        uint amountETHMin, // 获得 ETH 数量的最小值
+        address to, // 获得的 token、ETH 发送到的地址
+        uint deadline // 过期时间
     ) public virtual override ensure(deadline) returns (uint amountToken, uint amountETH) {
+       // 移除流动性，Router获得数量为 amountToken 的 token，amountETH 的 WETH
         (amountToken, amountETH) = removeLiquidity(
             token,
             WETH,
@@ -166,48 +181,74 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
             address(this),
             deadline
         );
+        // 向 to 地址发送数量为 amountToken 的 token
         TransferHelper.safeTransfer(token, to, amountToken);
+        // 将数量为 amountETH 的 WETH 换成 ETH
         IWETH(WETH).withdraw(amountETH);
+        // 向 to 地址发送数量为 amountToken 的 ETH
         TransferHelper.safeTransferETH(to, amountETH);
     }
+    /**
+     *  函数 removeLiquidityWithPermit 这个实现了签名授权 Router 使用用户的 LP。首先要明确的是，合约调用用户的代币需要用户的授权才能进行，
+     *  而 LP 的授权既可以发送一笔交易，也可以使用签名。而使用 removeLiquidityWithPermit 可以让用户免于发送一笔授权交易，转而使用签名，从而简化用户的操作。
+     *  使用签名进行授权，简化了用户的操作，但有些人可能会利用用户对签名的不了解，盗窃用户资产。
+     */
     function removeLiquidityWithPermit(
-        address tokenA,
-        address tokenB,
-        uint liquidity,
-        uint amountAMin,
-        uint amountBMin,
-        address to,
-        uint deadline,
-        bool approveMax, uint8 v, bytes32 r, bytes32 s
+        address tokenA, // 移除流动性 tokenA 的地址
+        address tokenB, // 移除流动性 tokenB 的地址
+        uint liquidity, // 销毁 LP 的数量
+        uint amountAMin, // 获得 tokenA 数量的最小值
+        uint amountBMin, // 获得 tokenB 数量的最小值
+        address to, // 获得的 tokenA、tokenB 发送到的地址
+        uint deadline, // 过期时间
+        bool approveMax, // 是否授权为最大值
+        uint8 v, bytes32 r, bytes32 s // 签名 v,r,s
     ) external virtual override returns (uint amountA, uint amountB) {
+         // 获取 tokenA, tokenB 的流动池地址
         address pair = UniswapV2Library.pairFor(factory, tokenA, tokenB);
+        // 获取授权 LP 的数量
         uint value = approveMax ? uint(-1) : liquidity;
+        // 授权 Router 使用用户数量为 value 的 LP
         IUniswapV2Pair(pair).permit(msg.sender, address(this), value, deadline, v, r, s);
+        // 移除流动性
         (amountA, amountB) = removeLiquidity(tokenA, tokenB, liquidity, amountAMin, amountBMin, to, deadline);
     }
+    /**
+     *  因为移除流动性的是 ETH，因此不需要传入 ETH 的地址，改为使用 WETH
+     */
     function removeLiquidityETHWithPermit(
-        address token,
-        uint liquidity,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline,
-        bool approveMax, uint8 v, bytes32 r, bytes32 s
+        address token, // 移除流动性 token 的地址
+        uint liquidity, // 销毁 LP 的数量
+        uint amountTokenMin, // 获得 token 数量的最小值
+        uint amountETHMin, // 获得 ETH 数量的最小值
+        address to, // 获得的 token、ETH 发送到的地址
+        uint deadline, // 过期时间
+        bool approveMax,  // 是否授权为最大值
+        uint8 v, bytes32 r, bytes32 s // 签名 v,r,s
     ) external virtual override returns (uint amountToken, uint amountETH) {
+        // 获取 tokenA, WETH 的流动池地址
         address pair = UniswapV2Library.pairFor(factory, token, WETH);
+        // 获取授权 LP 的数量
         uint value = approveMax ? uint(-1) : liquidity;
+        // 授权 Router 使用用户数量为 value 的 LP
         IUniswapV2Pair(pair).permit(msg.sender, address(this), value, deadline, v, r, s);
+        // 移除 ETH 流动性
         (amountToken, amountETH) = removeLiquidityETH(token, liquidity, amountTokenMin, amountETHMin, to, deadline);
     }
 
     // **** REMOVE LIQUIDITY (supporting fee-on-transfer tokens) ****
+    /**
+     * 相比于 removeLiquidityETH，removeLiquidityETHSupportingFeeOnTransferTokens 少了一个出参。
+     * 这是因为函数 removeLiquidityETHSupportingFeeOnTransferTokens 的主要功能是支持第三方为用户支付手续费并收取一定的代币，
+     * 因此 amountToken 中有一部分会被第三方收取，用户真实获取的代币数量会比 amountToken 少。具体见 ERC865
+     */
     function removeLiquidityETHSupportingFeeOnTransferTokens(
-        address token,
-        uint liquidity,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline
+        address token, // 移除流动性 token 的地址
+        uint liquidity, // 销毁 LP 的数量
+        uint amountTokenMin, // 获得 token 数量的最小值
+        uint amountETHMin, // 获得 ETH 数量的最小值
+        address to, // 获得的 token、ETH 发送到的地址
+        uint deadline // 过期时间
     ) public virtual override ensure(deadline) returns (uint amountETH) {
         (, amountETH) = removeLiquidity(
             token,
@@ -222,6 +263,9 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         IWETH(WETH).withdraw(amountETH);
         TransferHelper.safeTransferETH(to, amountETH);
     }
+    /**
+     * 
+     */
     function removeLiquidityETHWithPermitSupportingFeeOnTransferTokens(
         address token,
         uint liquidity,
