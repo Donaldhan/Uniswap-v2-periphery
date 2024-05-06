@@ -38,7 +38,7 @@ library UniswapV2Library {
     }
 
     // given some amount of an asset and pair reserves, returns an equivalent amount of the other asset
-    // 在给定数量资产和储备量的情况下，返回等量的其他资产；
+    // 在给定数量资产和储备量的情况下， 需要添加的等量的其他资产; A/B = Ra/Rb;
     function quote(uint amountA, uint reserveA, uint reserveB) internal pure returns (uint amountB) {
         require(amountA > 0, 'UniswapV2Library: INSUFFICIENT_AMOUNT');
         require(reserveA > 0 && reserveB > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
@@ -46,7 +46,7 @@ library UniswapV2Library {
     }
 
     // given an input amount of an asset and pair reserves, returns the maximum output amount of the other asset
-    // 根据输入的资产和pair的储备量，获取另外一个资产的最大输出量
+    // 根据输入的资产和pair的储备量，获取另外一个资产的最大输出量:(Rout - Rin*Rout/（Rin+inWithoutFee）)= Rout*inWithoutFee/（Rin+inWithoutFee）= Rout*in*997/(1000*Rin+in*997)
     function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) internal pure returns (uint amountOut) {
         require(amountIn > 0, 'UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT');
         require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
@@ -58,7 +58,7 @@ library UniswapV2Library {
     }
 
     // given an output amount of an asset and pair reserves, returns a required input amount of the other asset
-    //给定数量的资产输出和pair储备量，返回需要输入的其他资产数量
+    //给定数量的资产输出和pair储备量，返回需要输入的其他资产数量: TODO
     function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) internal pure returns (uint amountIn) {
         require(amountOut > 0, 'UniswapV2Library: INSUFFICIENT_OUTPUT_AMOUNT');
         require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
