@@ -46,7 +46,7 @@ library UniswapV2Library {
     }
 
     // given an input amount of an asset and pair reserves, returns the maximum output amount of the other asset
-    // 根据输入的资产和pair的储备量，获取另外一个资产的最大输出量:(Rout - Rin*Rout/（Rin+inWithoutFee）)= Rout*inWithoutFee/（Rin+inWithoutFee）= Rout*in*997/(1000*Rin+in*997)
+    // 根据输入的资产和pair的储备量，获取另外一个资产的最大输出量:amountOut=(Rout - Rin*Rout/（Rin+inWithoutFee）)= Rout*inWithoutFee/（Rin+inWithoutFee）= Rout*in*997/(1000*Rin+in*997)
     function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) internal pure returns (uint amountOut) {
         require(amountIn > 0, 'UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT');
         require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
@@ -58,12 +58,18 @@ library UniswapV2Library {
     }
 
     // given an output amount of an asset and pair reserves, returns a required input amount of the other asset
-    //给定数量的资产输出和pair储备量，返回需要输入的其他资产数量: TODO
+    //给定数量的资产输出和pair储备量，返回需要输入的其他资产数量
+    // getAmountOut:amountOut=(Rout - Rin*Rout/（Rin+inWithoutFee）)= Rout*inWithoutFee/（Rin+inWithoutFee）= Rout*in*997/(1000*Rin+in*997)
+    //amountOut*(1000*Rin+in*997) = Rout*in*997;
+    //amountOut*1000*Rin+amountOut*in*997 = Rout*in*997;
+    //amountOut*1000*Rin = in*(Rout-amountOut)*997
+    //in = amountOut*1000*Rin/(Rout-amountOut)*997
     function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) internal pure returns (uint amountIn) {
         require(amountOut > 0, 'UniswapV2Library: INSUFFICIENT_OUTPUT_AMOUNT');
         require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
         uint numerator = reserveIn.mul(amountOut).mul(1000);
         uint denominator = reserveOut.sub(amountOut).mul(997);
+        //多加1，保证足够？？
         amountIn = (numerator / denominator).add(1);
     }
 
